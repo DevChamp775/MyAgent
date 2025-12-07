@@ -514,6 +514,14 @@ const html = `
   </div>
 
   <script>
+      // --- PWA: Service Worker Registration ---
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("/sw.js")
+          .catch((err) => console.log("Service worker registration failed:", err));
+      });
+    }
     // --- UI/STATE ELEMENTS ---
     const loginScreen = document.getElementById("login-screen");
     const chatScreen = document.getElementById("chat-screen");
