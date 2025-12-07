@@ -5,13 +5,17 @@ const { GoogleGenAI } = require("@google/genai");
 
 dotenv.config();
 
-// --- GEMINI SETUP ---
+// --- GEMINI + SERPAPI SETUP ---
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const model = "gemini-2.5-flash";
 
 console.log(
-  "Environment Key Check:",
-  process.env.GEMINI_API_KEY ? "Key Loaded!" : "Key FAILED to Load!"
+  "Environment GEMINI Key:",
+  process.env.GEMINI_API_KEY ? "Loaded ✅" : "❌ NOT LOADED"
+);
+console.log(
+  "Environment SERPAPI Key:",
+  process.env.SERPAPI_KEY ? "Loaded ✅" : "❌ NOT LOADED (web search will not work)"
 );
 
 const app = express();
@@ -48,59 +52,137 @@ function studyPlanGenerator(topic) {
   });
 }
 
+// 🌐 TOOL 3: Web Search using SerpAPI (Google search)
+// Requires: process.env.SERPAPI_KEY and Node 18+ for global fetch
+async function webSearch(query) {
+  if (!process.env.SERPAPI_KEY) {
+    return `Error: SERPAPI_KEY is not set in the backend environment. Cannot run web search for "${query}".`;
+  }
+
+  const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(
+    query
+  )}&api_key=${process.env.SERPAPI_KEY}&num=5`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      return `Error: SerpAPI request failed with status ${res.status}.`;
+    }
+
+    const data = await res.json();
+
+    const results =
+      data.organic_results ||
+      data.news_results ||
+      data.answer_box ||
+      data.knowledge_graph ||
+      [];
+
+    if (!results || results.length === 0) {
+      return `No web results found for: "${query}".`;
+    }
+
+    // Normalize to first 3 readable results
+    const top3 = (Array.isArray(results) ? results : [results]).slice(0, 3);
+
+    const formatted = top3
+      .map((r, i) => {
+        const title = r.title || r.name || "No title";
+        const snippet =
+          r.snippet ||
+          r.content ||
+          r.description ||
+          r.answer ||
+          "No snippet available.";
+        const link = r.link || r.url || r.source || "";
+        return `(${i + 1}) **${title}**\n${snippet}\n${link}`;
+      })
+      .join("\n\n");
+
+    return `Top web results for "${query}":\n\n${formatted}`;
+  } catch (err) {
+    console.error("❌ SerpAPI error:", err);
+    return `Error: Failed to fetch web results for "${query}".`;
+  }
+}
+
 // 💡 Centralized function to call Gemini (handles history and tool calling loop)
 async function runChat(message) {
   // Initialize chat session if it doesn't exist
   if (!chatSession) {
+    const tools = [
+      {
+        functionDeclarations: [
+          {
+            name: "simpleCalculator",
+            description:
+              "Performs basic mathematical calculations like addition, subtraction, multiplication, and division. Use this for all math-related requests (e.g., 'calc: 2+3*4', 'what is 100/5', etc.).",
+            parameters: {
+              type: "object",
+              properties: {
+                expr: {
+                  type: "string",
+                  description:
+                    "The mathematical expression to evaluate, e.g., '2+3*4'.",
+                },
+              },
+              required: ["expr"],
+            },
+          },
+          {
+            name: "studyPlanGenerator",
+            description:
+              "Triggers the creation of a 5-day study plan for a beginner on a requested topic. Use this for all 'study:' or education-related requests.",
+            parameters: {
+              type: "object",
+              properties: {
+                topic: {
+                  type: "string",
+                  description:
+                    "The subject or topic for which the study plan should be generated, e.g., 'Operating System'.",
+                },
+              },
+              required: ["topic"],
+            },
+          },
+          {
+            name: "webSearch",
+            description:
+              "Uses SerpAPI (Google Search) to fetch fresh information from the internet. Use this for any question that needs up-to-date facts, news, weather, live scores, current events, or other real-world data.",
+            parameters: {
+              type: "object",
+              properties: {
+                query: {
+                  type: "string",
+                  description:
+                    "The search query to run on Google, e.g., 'latest T20 World Cup winner', 'weather in Kolkata today', 'current prime minister of UK'.",
+                },
+              },
+              required: ["query"],
+            },
+          },
+        ],
+      },
+    ];
+
     chatSession = ai.chats.create({
       model: model,
       config: {
         systemInstruction:
-          "You are a friendly and helpful AI assistant named DEV AI Agent. Explain things simply, remember the conversation history, and use your available tools (calculator and study_planner) whenever appropriate.",
-        tools: [
-          {
-            functionDeclarations: [
-              {
-                name: "simpleCalculator",
-                description:
-                  "Performs basic mathematical calculations like addition, subtraction, multiplication, and division. Use this for all math-related requests (e.g., 'calc: 2+3*4', 'what is 100/5', etc.).",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    expr: {
-                      type: "string",
-                      description:
-                        "The mathematical expression to evaluate, e.g., '2+3*4'.",
-                    },
-                  },
-                  required: ["expr"],
-                },
-              },
-              {
-                name: "studyPlanGenerator",
-                description:
-                  "Triggers the creation of a 5-day study plan for a beginner on a requested topic. Use this for all 'study:' or education-related requests.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    topic: {
-                      type: "string",
-                      description:
-                        "The subject or topic for which the study plan should be generated, e.g., 'Operating System'.",
-                    },
-                  },
-                  required: ["topic"],
-                },
-              },
-            ],
-          },
-        ],
+          "You are a friendly and helpful AI assistant named DEV AI Agent. " +
+          "You can answer ANY kind of user question: explanations, how-to help, coding, " +
+          "writing, general knowledge, etc. " +
+          "When the user asks about recent events, live data, or anything that might have changed, " +
+          "call the webSearch tool with a good query to fetch fresh information and then summarize it. " +
+          "For math-only questions, you may call simpleCalculator. For learning a topic over multiple days, " +
+          "you may call studyPlanGenerator. Always respond clearly, step-by-step when needed, and in a friendly tone.",
+        tools,
       },
     });
-    console.log("✨ New chat session created with tools.");
+    console.log("✨ New chat session created with tools (calc + study + webSearch).");
   }
 
-  let response = await chatSession.sendMessage({ message: message });
+  let response = await chatSession.sendMessage({ message });
   let toolResponse = "";
 
   // Tool Calling Loop
@@ -109,13 +191,17 @@ async function runChat(message) {
     const { name, args } = call;
     let toolResult = null;
 
-    console.log(`\n\n🛠️ AI called tool: ${name} with args: ${JSON.stringify(args)}`);
+    console.log(
+      `\n\n🛠️ AI called tool: ${name} with args: ${JSON.stringify(args)}`
+    );
 
     if (name === "simpleCalculator") {
       toolResult = simpleCalculator(args.expr);
       toolResponse = `The result of ${args.expr} is **${toolResult}**`;
     } else if (name === "studyPlanGenerator") {
       toolResult = studyPlanGenerator(args.topic);
+    } else if (name === "webSearch") {
+      toolResult = await webSearch(args.query);
     } else {
       toolResult = `Error: Unknown tool ${name}`;
     }
@@ -133,12 +219,13 @@ async function runChat(message) {
       ],
     });
 
-    // If the calculator ran, we return the result immediately
+    // For calculator, we can short-circuit if you want only raw result
     if (toolResponse && name === "simpleCalculator") {
       return toolResponse;
     }
   }
 
+  // Final natural language answer
   return response.text;
 }
 
@@ -351,7 +438,7 @@ const html = `
       padding: 22px 22px 18px 22px;
       display: flex;
       flex-direction: column;
-      min-height: 0; /* 🔑 allow inner scroll */
+      min-height: 0; /* allow inner scroll */
     }
 
     .chat-header {
@@ -374,7 +461,7 @@ const html = `
       overflow-y: auto;
       padding-right: 4px;
       padding-bottom: 10px;
-      min-height: 0; /* 🔑 needed in some browsers */
+      min-height: 0;
     }
 
     .message {
@@ -405,7 +492,7 @@ const html = `
       gap: 8px;
       padding-top: 10px;
       margin-top: auto;
-      flex-shrink: 0; /* 🔑 keep bar visible */
+      flex-shrink: 0; /* keep bar visible */
     }
 
     #input-shell {
@@ -605,7 +692,8 @@ const html = `
         <div class="chat-header">
           <h1>Dev AI Agent Console</h1>
           <p class="subtitle">
-            Ask anything, or try <code>calc: 5*2+10</code> or <code>study: Quantum Physics</code>.
+            Ask anything — latest news, general doubts, code, study help — or try
+            <code>calc: 5*2+10</code> or <code>study: Quantum Physics</code>.
           </p>
         </div>
 
@@ -658,7 +746,7 @@ const html = `
       if (!history || history.length === 0) {
         // No history → show greeting
         addMessage(
-          "Hello! I'm DEV AI Agent. How can I help you today? Try asking me to calculate '5*2+10' or 'study: Quantum Physics'.",
+          "Hello! I'm DEV AI Agent. Ask me anything — I can also search the internet for the latest info using SerpAPI.",
           "bot"
         );
         return;
@@ -837,6 +925,6 @@ app.post("/api/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 AI Agent with Gemini running at http://localhost:${PORT}`);
+  console.log(`🚀 AI Agent with Gemini + SerpAPI running at http://localhost:${PORT}`);
 });
 
