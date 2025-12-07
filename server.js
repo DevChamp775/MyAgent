@@ -146,7 +146,7 @@ const html = `
   <meta charset="UTF-8" />
   <!-- ✅ Mobile scaling -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fresh AI Agent - Secure Chat</title>
+  <title>Dev AI Agent - Secure Chat</title>
 
   <link rel="manifest" href="/manifest.json" />
   <meta name="theme-color" content="#020617" />
@@ -483,6 +483,71 @@ const html = `
         padding: 12px 16px;
         font-size: 15px;
       }
+
+      /* 🔹 Chat layout tweaks on mobile */
+      .chat-container {
+        width: 100%;
+        height: 100vh;
+        max-width: none;
+        border-radius: 0;
+        flex-direction: column;
+        border-left: none;
+        border-right: none;
+      }
+
+      .sidebar {
+        width: 100%;
+        padding: 12px 16px;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        border-right: none;
+        border-bottom: 1px solid #111827;
+      }
+
+      .history-list {
+        display: none; /* hide fake history to save space */
+      }
+
+      .sidebar-footer {
+        flex-direction: row;
+        gap: 6px;
+        margin-top: 0;
+      }
+
+      .chat-main {
+        padding: 14px 12px 12px 12px;
+      }
+
+      .chat-header h1 {
+        font-size: 20px;
+      }
+
+      .chat-header .subtitle {
+        font-size: 12px;
+      }
+
+      .message {
+        max-width: 85%;
+        font-size: 13px;
+      }
+
+      #chat-form {
+        gap: 6px;
+      }
+
+      #input-shell {
+        padding: 8px 10px;
+      }
+
+      #user-input {
+        font-size: 13px;
+      }
+
+      #send-btn {
+        padding: 8px 12px;
+        font-size: 13px;
+      }
     }
   </style>
 </head>
@@ -492,7 +557,7 @@ const html = `
 
     <!-- LOGIN SCREEN -->
     <div class="login-container" id="login-screen">
-      <h1>Fresh AI Agent 🤖</h1>
+      <h1>Dev AI Agent 🤖</h1>
       <p class="subtitle">Securely access your personalized AI workspace.</p>
 
       <form id="login-form">
@@ -532,7 +597,7 @@ const html = `
 
       <div class="chat-main">
         <div class="chat-header">
-          <h1>Fresh AI Agent Console</h1>
+          <h1>Dev AI Agent Console</h1>
           <p class="subtitle">
             Ask anything, or try <code>calc: 5*2+10</code> or <code>study: Quantum Physics</code>.
           </p>
@@ -704,9 +769,3 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 AI Agent with Gemini running at http://localhost:${PORT}`);
 });
-
-
-
-
-
-
