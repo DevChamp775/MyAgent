@@ -157,6 +157,7 @@ const html = `
   <link rel="icon" type="image/png" href="/icons/icon-192.png" />
 
   <style>
+    /* BASIC PAGE */
     html, body {
       height: 100%;
       margin: 0;
@@ -164,15 +165,12 @@ const html = `
       background: #020617;
       font-family: system-ui, sans-serif;
       color: #e5e7eb;
-      display: flex;
-      justify-content: center;
-      align-items: center;
     }
 
     /* MAIN APP ROOT */
     .app {
       width: 100%;
-      height: 100%;
+      height: 100vh;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -353,6 +351,7 @@ const html = `
       padding: 22px 22px 18px 22px;
       display: flex;
       flex-direction: column;
+      min-height: 0; /* 🔑 allow inner scroll */
     }
 
     .chat-header {
@@ -375,6 +374,7 @@ const html = `
       overflow-y: auto;
       padding-right: 4px;
       padding-bottom: 10px;
+      min-height: 0; /* 🔑 needed in some browsers */
     }
 
     .message {
@@ -405,6 +405,7 @@ const html = `
       gap: 8px;
       padding-top: 10px;
       margin-top: auto;
+      flex-shrink: 0; /* 🔑 keep bar visible */
     }
 
     #input-shell {
@@ -454,11 +455,12 @@ const html = `
     /* ✅ MOBILE RESPONSIVE FIX */
     @media (max-width: 600px) {
       html, body {
-        align-items: flex-start;
+        height: 100%;
       }
 
       .app {
-        align-items: flex-start;
+        height: 100vh;
+        align-items: stretch;
       }
 
       .login-container {
@@ -491,7 +493,7 @@ const html = `
       /* 🔹 Chat layout tweaks on mobile */
       .chat-container {
         width: 100%;
-        height: 100vh;
+        height: 100%;
         max-width: none;
         border-radius: 0;
         flex-direction: column;
@@ -735,7 +737,7 @@ const html = `
       input.value = "";
 
       // Temporary "Thinking..." bubble
-      addMessage("Soch rahal ba....", "bot");
+      addMessage("Ruko jaraa, sabr karoo....", "bot");
       const loadingElem = chatWindow.lastChild;
 
       try {
