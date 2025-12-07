@@ -19,8 +19,12 @@ app.use(express.static("public"));
 app.use(cors());
 app.use(express.json());
 
-// Stores chat history in memory (single session for simplicity)
+// Stores chat session + history in memory (single session for simplicity)
 let chatSession = null;
+
+// 📝 In-memory chat history for the UI
+let chatHistory = [];
+let nextId = 1;
 
 // --- TOOL FUNCTIONS ---
 
@@ -52,7 +56,7 @@ async function runChat(message) {
       model: model,
       config: {
         systemInstruction:
-          "You are a friendly and helpful AI assistant named Fresh Agent. Explain things simply, remember the conversation history, and use your available tools (calculator and study_planner) whenever appropriate.",
+          "You are a friendly and helpful AI assistant named DEV AI Agent. Explain things simply, remember the conversation history, and use your available tools (calculator and study_planner) whenever appropriate.",
         tools: [
           {
             functionDeclarations: [
@@ -646,13 +650,38 @@ const html = `
       chatWindow.scrollTop = chatWindow.scrollHeight;
     }
 
+    // Render full history returned from backend
+    function renderHistory(history) {
+      chatWindow.innerHTML = "";
+      if (!history || history.length === 0) {
+        // No history → show greeting
+        addMessage(
+          "Hello! I'm DEV AI Agent. How can I help you today? Try asking me to calculate '5*2+10' or 'study: Quantum Physics'.",
+          "bot"
+        );
+        return;
+      }
+
+      history.forEach((msg) => {
+        const sender = msg.sender === "user" ? "user" : "bot";
+        addMessage(msg.text, sender);
+      });
+    }
+
     function showChat() {
       loginScreen.classList.add("hidden");
       chatScreen.classList.remove("hidden");
-      addMessage(
-        "Hello! I'm Fresh Agent. How can I help you today? Try asking me to calculate '5*2+10' or 'study: Quantum Physics'.",
-        "bot"
-      );
+
+      // Load existing history from backend when opening chat
+      fetch("/api/history")
+        .then((res) => res.json())
+        .then((data) => {
+          renderHistory(data.history || []);
+        })
+        .catch(() => {
+          // Fallback greeting
+          renderHistory([]);
+        });
     }
 
     function showLogin() {
@@ -701,10 +730,12 @@ const html = `
       const text = input.value.trim();
       if (!text || !isAuthenticated) return;
 
+      // Show user's message immediately on UI
       addMessage(text, "user");
       input.value = "";
 
-      addMessage("Thinking...", "bot");
+      // Temporary "Thinking..." bubble
+      addMessage("Soch rahal ba....", "bot");
       const loadingElem = chatWindow.lastChild;
 
       try {
@@ -715,16 +746,25 @@ const html = `
         });
 
         const data = await res.json();
-        chatWindow.removeChild(loadingElem);
+        // clear the temporary bubble
+        if (loadingElem && loadingElem.parentNode === chatWindow) {
+          chatWindow.removeChild(loadingElem);
+        }
 
         if (data.error) {
           addMessage("Error: " + data.error, "bot");
+        } else if (data.history) {
+          // Re-render entire conversation using backend history
+          renderHistory(data.history);
         } else {
-          addMessage(data.result, "bot");
+          // Fallback for older response shape
+          addMessage(data.result || "No response from agent.", "bot");
         }
       } catch (err) {
         console.error("❌ Fetch error:", err);
-        chatWindow.removeChild(loadingElem);
+        if (loadingElem && loadingElem.parentNode === chatWindow) {
+          chatWindow.removeChild(loadingElem);
+        }
         addMessage("Network error hitting /api/agent", "bot");
       }
     });
@@ -739,8 +779,15 @@ app.get("/", (req, res) => {
   res.send(html);
 });
 
+// Return full chat history for the frontend
+app.get("/api/history", (req, res) => {
+  res.json({ history: chatHistory });
+});
+
 app.post("/api/reset", (req, res) => {
   chatSession = null;
+  chatHistory = [];
+  nextId = 1;
   console.log("Session reset command received. Chat history cleared.");
   res.status(200).json({ status: "ok", message: "Session reset." });
 });
@@ -754,8 +801,29 @@ app.post("/api/agent", async (req, res) => {
   }
 
   try {
+    // Save user message into history
+    chatHistory.push({
+      id: nextId++,
+      sender: "user",
+      text: message,
+      timestamp: new Date().toISOString(),
+    });
+
     const reply = await runChat(message);
-    return res.json({ type: "agent", result: reply });
+
+    // Save agent reply into history
+    chatHistory.push({
+      id: nextId++,
+      sender: "agent",
+      text: reply,
+      timestamp: new Date().toISOString(),
+    });
+
+    return res.json({
+      type: "agent",
+      result: reply,
+      history: chatHistory,
+    });
   } catch (err) {
     console.error("❌ SERVER ERROR:", err);
     chatSession = null;
@@ -769,3 +837,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 AI Agent with Gemini running at http://localhost:${PORT}`);
 });
+
