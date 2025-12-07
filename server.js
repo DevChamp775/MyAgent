@@ -15,7 +15,7 @@ console.log(
 );
 
 const app = express();
-
+app.use(express.static("public"));
 app.use(cors());
 app.use(express.json());
 
@@ -145,6 +145,11 @@ const html = `
 <head>
   <meta charset="UTF-8" />
   <title>Fresh AI Agent - Secure Chat</title>
+
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#020617" />
+  <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+
 
   <style>
     html, body {
