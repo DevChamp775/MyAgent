@@ -144,12 +144,13 @@ const html = `
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <!-- ✅ Mobile scaling -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Fresh AI Agent - Secure Chat</title>
 
   <link rel="manifest" href="/manifest.json" />
   <meta name="theme-color" content="#020617" />
   <link rel="icon" type="image/png" href="/icons/icon-192.png" />
-
 
   <style>
     html, body {
@@ -446,6 +447,43 @@ const html = `
       transform: translateY(1px);
     }
 
+    /* ✅ MOBILE RESPONSIVE FIX */
+    @media (max-width: 600px) {
+      html, body {
+        align-items: flex-start;
+      }
+
+      .app {
+        align-items: flex-start;
+      }
+
+      .login-container {
+        width: 90%;
+        max-width: 360px;
+        padding: 30px 24px;
+        margin-top: 40px;
+      }
+
+      .login-container h1 {
+        font-size: 24px;
+      }
+
+      .login-container .subtitle {
+        font-size: 14px;
+        margin-bottom: 24px;
+      }
+
+      input[type="text"],
+      input[type="password"] {
+        padding: 10px 12px;
+        font-size: 15px;
+      }
+
+      #login-form button[type="submit"] {
+        padding: 12px 16px;
+        font-size: 15px;
+      }
+    }
   </style>
 </head>
 
@@ -514,7 +552,7 @@ const html = `
   </div>
 
   <script>
-      // --- PWA: Service Worker Registration ---
+    // --- PWA: Service Worker Registration ---
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
         navigator.serviceWorker
@@ -522,6 +560,7 @@ const html = `
           .catch((err) => console.log("Service worker registration failed:", err));
       });
     }
+
     // --- UI/STATE ELEMENTS ---
     const loginScreen = document.getElementById("login-screen");
     const chatScreen = document.getElementById("chat-screen");
@@ -665,6 +704,7 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 AI Agent with Gemini running at http://localhost:${PORT}`);
 });
+
 
 
 
