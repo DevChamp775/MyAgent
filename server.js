@@ -4,12 +4,12 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
-// --- OPENROUTER + SERPAPI SETUP (clean logs) ---
-const hasOpenRouterKey = !!process.env.OPENROUTER_KEY;
-const hasSerpApiKey = !!process.env.SERPAPI_KEY;
+// --- OPENROUTER (Gemma 2) + SERPAPI SETUP ---
+const OPENROUTER_KEY = process.env.OPENROUTER_KEY || null;
+const SERPAPI_KEY = process.env.SERPAPI_KEY || null;
 
-console.log("🔑 OpenRouter API key:", hasOpenRouterKey ? "Loaded" : "Missing");
-console.log("🌐 Web search (SerpAPI):", hasSerpApiKey ? "Enabled" : "Disabled");
+console.log("🔑 OpenRouter API key:", OPENROUTER_KEY ? "Loaded" : "Missing");
+console.log("🌐 Web search (SerpAPI):", SERPAPI_KEY ? "Enabled" : "Disabled");
 
 const app = express();
 app.use(express.static("public"));
@@ -35,15 +35,14 @@ function simpleCalculator(expr) {
 }
 
 // 🌐 TOOL 2: Web Search using SerpAPI (Google search)
-// Requires: process.env.SERPAPI_KEY and Node 18+ for global fetch
 async function webSearch(query) {
-  if (!process.env.SERPAPI_KEY) {
+  if (!SERPAPI_KEY) {
     return `Error: SERPAPI_KEY is not set on the server. Cannot run web search for "${query}".`;
   }
 
   const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(
     query
-  )}&api_key=${process.env.SERPAPI_KEY}&num=5`;
+  )}&api_key=${SERPAPI_KEY}&num=5`;
 
   try {
     const res = await fetch(url);
@@ -114,39 +113,40 @@ function shouldUseWebSearch(message) {
   return keywords.some((k) => lower.includes(k));
 }
 
-// --- OPENROUTER CHAT CALL ---
+// --- OPENROUTER (Gemma 2) CHAT CALL ---
 
 async function callOpenRouter(messages) {
-  if (!process.env.OPENROUTER_KEY) {
+  if (!OPENROUTER_KEY) {
     throw new Error(
       "OPENROUTER_KEY is not set on the server. Please add it to your .env file."
     );
   }
 
-  const body = {
-    model: "meta-llama/llama-3.1-70b-instruct",
-    messages,
-  };
-
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_KEY}`,
+      Authorization: `Bearer ${OPENROUTER_KEY}`,
       "Content-Type": "application/json",
-      // Optional but recommended headers for OpenRouter
-      "HTTP-Referer": "https://myagent.example.com",
+      // optional but recommended
+      "HTTP-Referer": "https://myagent.local", // can be your site or localhost
       "X-Title": "Dev AI Agent",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      model: "google/gemma-2-9b-it", // ⭐ model 1
+      messages,
+      temperature: 0.7,
+    }),
   });
 
   const data = await res.json();
 
   if (!res.ok) {
-    console.error("❌ OpenRouter error:", data);
-    throw new Error(
-      data.error?.message || `OpenRouter request failed with ${res.status}`
-    );
+    console.error("❌ OpenRouter error raw:", data);
+    const msg =
+      data?.error?.message ||
+      data?.message ||
+      `OpenRouter request failed with ${res.status}`;
+    throw new Error(msg);
   }
 
   const content =
@@ -190,11 +190,11 @@ async function runChat(userMessage, webResultsText = null) {
   // Add the actual new question
   messages.push({ role: "user", content: userMessage });
 
-  // Call OpenRouter
+  // Call OpenRouter (Gemma 2)
   return await callOpenRouter(messages);
 }
 
-// --- HTML & CSS UI (same UI as before, just text tweaks) ---
+// --- HTML & CSS UI ---
 const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -620,16 +620,16 @@ const html = `
 
       <form id="login-form">
         <label for="username">Username</label>
-        <input type="text" id="username" value="user" required />
+        <input type="text" id="username" placeholder="Enter your email" required />
 
         <label for="password">Password</label>
-        <input type="password" id="password" value="password" required />
+        <input type="password" id="password" placeholder="Enter any password" required />
 
         <button type="submit">Login to Chat</button>
 
         <p id="login-message"
            style="display:none; margin-top:15px; text-align:center; color:#ef4444;">
-           Invalid credentials.
+           Please enter both username and password.
         </p>
       </form>
     </div>
@@ -710,7 +710,7 @@ const html = `
       chatWindow.innerHTML = "";
       if (!history || history.length === 0) {
         addMessage(
-          "Hello! I'm DEV AI Agent. Ask me anything — I can also search the internet for latest info using SerpAPI + OpenRouter.",
+          "Hello! I'm DEV AI Agent. Ask me anything — I can also search the internet for latest info using SerpAPI + OpenRouter (Gemma 2).",
           "bot"
         );
         return;
@@ -762,13 +762,13 @@ const html = `
       }
     };
 
-    // Login handler
+    // Login handler (any non-empty username + password)
     loginForm.addEventListener("submit", (e) => {
       e.preventDefault();
-      const username = document.getElementById("username").value;
-      const password = document.getElementById("password").value;
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value.trim();
 
-      if (username === "user" && password === "password") {
+      if (username && password) {
         isAuthenticated = true;
         loginMessage.style.display = "none";
         showChat();
@@ -861,6 +861,8 @@ app.post("/api/agent", async (req, res) => {
     const lower = message.toLowerCase().trim();
 
     // --- Special modes: calc:, study:, web: ---
+    let webResults = null;
+    let questionForModel = message;
 
     // Calculator
     if (lower.startsWith("calc:")) {
@@ -881,11 +883,9 @@ app.post("/api/agent", async (req, res) => {
     }
 
     // Study plan
-    let webResults = null;
-    let questionForModel = message;
-
     if (lower.startsWith("study:")) {
-      const topic = message.split(":").slice(1).join(":").trim() || "General topic";
+      const topic =
+        message.split(":").slice(1).join(":").trim() || "General topic";
       questionForModel =
         `Create a clear, beginner-friendly **5-day study plan** for the topic: "${topic}". ` +
         `Use markdown headings and bullet points. Include daily goals and resources.`;
@@ -899,7 +899,10 @@ app.post("/api/agent", async (req, res) => {
     }
     // Auto web-search based on keywords
     else if (shouldUseWebSearch(message)) {
-      webResults = await webSearch(message);
+      const query = message;
+      webResults = await webSearch(query);
+      questionForModel =
+        `Using the web search results provided, answer this question clearly and concisely:\n\n${query}`;
     }
 
     const reply = await runChat(questionForModel, webResults);
@@ -920,7 +923,7 @@ app.post("/api/agent", async (req, res) => {
   } catch (err) {
     console.error("❌ SERVER ERROR:", err);
 
-    const userMessage =
+    let userMessage =
       err.message ||
       "Something went wrong while talking to the AI model or web search.";
 
@@ -938,9 +941,12 @@ app.post("/api/agent", async (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(
-    `🚀 Dev AI Agent running with OpenRouter + SerpAPI at http://localhost:${PORT}`
+    `🚀 Dev AI Agent running with OpenRouter (Gemma 2) + SerpAPI at http://localhost:${PORT}`
   );
 });
+
+
+
 
 
 
