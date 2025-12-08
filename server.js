@@ -4,15 +4,12 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
-// --- OPENROUTER + SERPAPI SETUP ---
-console.log(
-  "Environment OPENROUTER_KEY:",
-  process.env.OPENROUTER_KEY ? "Loaded ✅" : "❌ NOT LOADED"
-);
-console.log(
-  "Environment SERPAPI_KEY:",
-  process.env.SERPAPI_KEY ? "Loaded ✅" : "⚠️ NOT LOADED (web search disabled)"
-);
+// --- OPENROUTER + SERPAPI SETUP (clean logs) ---
+const hasOpenRouterKey = !!process.env.OPENROUTER_KEY;
+const hasSerpApiKey = !!process.env.SERPAPI_KEY;
+
+console.log("🔑 OpenRouter API key:", hasOpenRouterKey ? "Loaded" : "Missing");
+console.log("🌐 Web search (SerpAPI):", hasSerpApiKey ? "Enabled" : "Disabled");
 
 const app = express();
 app.use(express.static("public"));
@@ -940,6 +937,10 @@ app.post("/api/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Dev AI Agent running with OpenRouter + SerpAPI at http://localhost:${PORT}`);
+  console.log(
+    `🚀 Dev AI Agent running with OpenRouter + SerpAPI at http://localhost:${PORT}`
+  );
 });
+
+
 
