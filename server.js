@@ -1,30 +1,23 @@
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
-const { GoogleGenAI } = require("@google/genai");
 
 dotenv.config();
 
-// --- GEMINI + SERPAPI SETUP ---
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const model = "gemini-2.5-flash";
-
+// --- OPENROUTER + SERPAPI SETUP ---
 console.log(
-  "Environment GEMINI Key:",
-  process.env.GEMINI_API_KEY ? "Loaded ✅" : "❌ NOT LOADED"
+  "Environment OPENROUTER_KEY:",
+  process.env.OPENROUTER_KEY ? "Loaded ✅" : "❌ NOT LOADED"
 );
 console.log(
-  "Environment SERPAPI Key:",
-  process.env.SERPAPI_KEY ? "Loaded ✅" : "❌ NOT LOADED (web search will not work)"
+  "Environment SERPAPI_KEY:",
+  process.env.SERPAPI_KEY ? "Loaded ✅" : "⚠️ NOT LOADED (web search disabled)"
 );
 
 const app = express();
 app.use(express.static("public"));
 app.use(cors());
 app.use(express.json());
-
-// Stores chat session + history in memory (single session for simplicity)
-let chatSession = null;
 
 // 📝 In-memory chat history for the UI
 let chatHistory = [];
@@ -44,19 +37,11 @@ function simpleCalculator(expr) {
   }
 }
 
-// 📖 TOOL 2: Study Plan Generator (Simulated)
-function studyPlanGenerator(topic) {
-  return JSON.stringify({
-    instruction: `Please generate a clear, concise 5-day study plan for a beginner on the topic: ${topic}. Format it using markdown headings and bullet points.`,
-    topic: topic,
-  });
-}
-
-// 🌐 TOOL 3: Web Search using SerpAPI (Google search)
+// 🌐 TOOL 2: Web Search using SerpAPI (Google search)
 // Requires: process.env.SERPAPI_KEY and Node 18+ for global fetch
 async function webSearch(query) {
   if (!process.env.SERPAPI_KEY) {
-    return `Error: SERPAPI_KEY is not set in the backend environment. Cannot run web search for "${query}".`;
+    return `Error: SERPAPI_KEY is not set on the server. Cannot run web search for "${query}".`;
   }
 
   const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(
@@ -82,7 +67,6 @@ async function webSearch(query) {
       return `No web results found for: "${query}".`;
     }
 
-    // Normalize to first 3 readable results
     const top3 = (Array.isArray(results) ? results : [results]).slice(0, 3);
 
     const formatted = top3
@@ -106,130 +90,114 @@ async function webSearch(query) {
   }
 }
 
-// 💡 Centralized function to call Gemini (handles history and tool calling loop)
-async function runChat(message) {
-  // Initialize chat session if it doesn't exist
-  if (!chatSession) {
-    const tools = [
-      {
-        functionDeclarations: [
-          {
-            name: "simpleCalculator",
-            description:
-              "Performs basic mathematical calculations like addition, subtraction, multiplication, and division. Use this for all math-related requests (e.g., 'calc: 2+3*4', 'what is 100/5', etc.).",
-            parameters: {
-              type: "object",
-              properties: {
-                expr: {
-                  type: "string",
-                  description:
-                    "The mathematical expression to evaluate, e.g., '2+3*4'.",
-                },
-              },
-              required: ["expr"],
-            },
-          },
-          {
-            name: "studyPlanGenerator",
-            description:
-              "Triggers the creation of a 5-day study plan for a beginner on a requested topic. Use this for all 'study:' or education-related requests.",
-            parameters: {
-              type: "object",
-              properties: {
-                topic: {
-                  type: "string",
-                  description:
-                    "The subject or topic for which the study plan should be generated, e.g., 'Operating System'.",
-                },
-              },
-              required: ["topic"],
-            },
-          },
-          {
-            name: "webSearch",
-            description:
-              "Uses SerpAPI (Google Search) to fetch fresh information from the internet. Use this for any question that needs up-to-date facts, news, weather, live scores, current events, or other real-world data.",
-            parameters: {
-              type: "object",
-              properties: {
-                query: {
-                  type: "string",
-                  description:
-                    "The search query to run on Google, e.g., 'latest T20 World Cup winner', 'weather in Kolkata today', 'current prime minister of UK'.",
-                },
-              },
-              required: ["query"],
-            },
-          },
-        ],
-      },
-    ];
-
-    chatSession = ai.chats.create({
-      model: model,
-      config: {
-        systemInstruction:
-          "You are a friendly and helpful AI assistant named DEV AI Agent. " +
-          "You can answer ANY kind of user question: explanations, how-to help, coding, " +
-          "writing, general knowledge, etc. " +
-          "When the user asks about recent events, live data, or anything that might have changed, " +
-          "call the webSearch tool with a good query to fetch fresh information and then summarize it. " +
-          "For math-only questions, you may call simpleCalculator. For learning a topic over multiple days, " +
-          "you may call studyPlanGenerator. Always respond clearly, step-by-step when needed, and in a friendly tone.",
-        tools,
-      },
-    });
-    console.log("✨ New chat session created with tools (calc + study + webSearch).");
-  }
-
-  let response = await chatSession.sendMessage({ message });
-  let toolResponse = "";
-
-  // Tool Calling Loop
-  while (response.functionCalls && response.functionCalls.length > 0) {
-    const call = response.functionCalls[0];
-    const { name, args } = call;
-    let toolResult = null;
-
-    console.log(
-      `\n\n🛠️ AI called tool: ${name} with args: ${JSON.stringify(args)}`
-    );
-
-    if (name === "simpleCalculator") {
-      toolResult = simpleCalculator(args.expr);
-      toolResponse = `The result of ${args.expr} is **${toolResult}**`;
-    } else if (name === "studyPlanGenerator") {
-      toolResult = studyPlanGenerator(args.topic);
-    } else if (name === "webSearch") {
-      toolResult = await webSearch(args.query);
-    } else {
-      toolResult = `Error: Unknown tool ${name}`;
-    }
-
-    // Send the tool's output back to the model
-    response = await chatSession.sendMessage({
-      message: `Tool ${name} executed. Result: ${toolResult}`,
-      functionResponses: [
-        {
-          name: name,
-          response: {
-            content: toolResult,
-          },
-        },
-      ],
-    });
-
-    // For calculator, we can short-circuit if you want only raw result
-    if (toolResponse && name === "simpleCalculator") {
-      return toolResponse;
-    }
-  }
-
-  // Final natural language answer
-  return response.text;
+// Simple heuristic: when should we auto-use web search?
+function shouldUseWebSearch(message) {
+  const lower = message.toLowerCase();
+  const keywords = [
+    "latest",
+    "today",
+    "yesterday",
+    "this week",
+    "this month",
+    "current",
+    "news",
+    "score",
+    "match",
+    "live",
+    "price",
+    "stock",
+    "share price",
+    "weather",
+    "forecast",
+    "update",
+    "who is the current",
+    "who is the president",
+    "who is the prime minister",
+  ];
+  return keywords.some((k) => lower.includes(k));
 }
 
-// --- HTML & CSS UI ---
+// --- OPENROUTER CHAT CALL ---
+
+async function callOpenRouter(messages) {
+  if (!process.env.OPENROUTER_KEY) {
+    throw new Error(
+      "OPENROUTER_KEY is not set on the server. Please add it to your .env file."
+    );
+  }
+
+  const body = {
+    model: "meta-llama/llama-3.1-70b-instruct",
+    messages,
+  };
+
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_KEY}`,
+      "Content-Type": "application/json",
+      // Optional but recommended headers for OpenRouter
+      "HTTP-Referer": "https://myagent.example.com",
+      "X-Title": "Dev AI Agent",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    console.error("❌ OpenRouter error:", data);
+    throw new Error(
+      data.error?.message || `OpenRouter request failed with ${res.status}`
+    );
+  }
+
+  const content =
+    data.choices?.[0]?.message?.content?.trim() ||
+    "I couldn't generate a response.";
+  return content;
+}
+
+// Build chat messages with history + optional web search results
+async function runChat(userMessage, webResultsText = null) {
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a friendly and helpful AI assistant named DEV AI Agent. " +
+        "You can answer any kind of question: explanations, how-to help, coding, writing, general knowledge, etc. " +
+        "When you are given 'Web search results' from the system, use them as your main source for up-to-date facts, " +
+        "but still explain answers in your own words.",
+    },
+  ];
+
+  // Include recent history (last ~10 messages) for context
+  const recent = chatHistory.slice(-10);
+  for (const msg of recent) {
+    if (msg.sender === "user") {
+      messages.push({ role: "user", content: msg.text });
+    } else {
+      messages.push({ role: "assistant", content: msg.text });
+    }
+  }
+
+  if (webResultsText) {
+    messages.push({
+      role: "system",
+      content:
+        "Here are some web search results to help answer the user's latest question:\n\n" +
+        webResultsText,
+    });
+  }
+
+  // Add the actual new question
+  messages.push({ role: "user", content: userMessage });
+
+  // Call OpenRouter
+  return await callOpenRouter(messages);
+}
+
+// --- HTML & CSS UI (same UI as before, just text tweaks) ---
 const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -692,8 +660,8 @@ const html = `
         <div class="chat-header">
           <h1>Dev AI Agent Console</h1>
           <p class="subtitle">
-            Ask anything — latest news, general doubts, code, study help — or try
-            <code>calc: 5*2+10</code> or <code>study: Quantum Physics</code>.
+            Ask anything — latest news, general doubts, code, study help.  
+            Try <code>calc: 5*2+10</code>, <code>study: Quantum Physics</code>, or <code>web: who won t20 world cup 2024</code>.
           </p>
         </div>
 
@@ -744,9 +712,8 @@ const html = `
     function renderHistory(history) {
       chatWindow.innerHTML = "";
       if (!history || history.length === 0) {
-        // No history → show greeting
         addMessage(
-          "Hello! I'm DEV AI Agent. Ask me anything — I can also search the internet for the latest info using SerpAPI.",
+          "Hello! I'm DEV AI Agent. Ask me anything — I can also search the internet for latest info using SerpAPI + OpenRouter.",
           "bot"
         );
         return;
@@ -769,7 +736,6 @@ const html = `
           renderHistory(data.history || []);
         })
         .catch(() => {
-          // Fallback greeting
           renderHistory([]);
         });
     }
@@ -836,18 +802,15 @@ const html = `
         });
 
         const data = await res.json();
-        // clear the temporary bubble
         if (loadingElem && loadingElem.parentNode === chatWindow) {
           chatWindow.removeChild(loadingElem);
         }
 
         if (data.error) {
-          addMessage("Error: " + data.error, "bot");
+          addMessage("⚠️ " + data.error, "bot");
         } else if (data.history) {
-          // Re-render entire conversation using backend history
           renderHistory(data.history);
         } else {
-          // Fallback for older response shape
           addMessage(data.result || "No response from agent.", "bot");
         }
       } catch (err) {
@@ -875,7 +838,6 @@ app.get("/api/history", (req, res) => {
 });
 
 app.post("/api/reset", (req, res) => {
-  chatSession = null;
   chatHistory = [];
   nextId = 1;
   console.log("Session reset command received. Chat history cleared.");
@@ -899,7 +861,51 @@ app.post("/api/agent", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
 
-    const reply = await runChat(message);
+    const lower = message.toLowerCase().trim();
+
+    // --- Special modes: calc:, study:, web: ---
+
+    // Calculator
+    if (lower.startsWith("calc:")) {
+      const expr = message.split(":").slice(1).join(":").trim();
+      const result = simpleCalculator(expr);
+      const reply = `The result of ${expr} is **${result}**.`;
+      chatHistory.push({
+        id: nextId++,
+        sender: "agent",
+        text: reply,
+        timestamp: new Date().toISOString(),
+      });
+      return res.json({
+        type: "agent",
+        result: reply,
+        history: chatHistory,
+      });
+    }
+
+    // Study plan
+    let webResults = null;
+    let questionForModel = message;
+
+    if (lower.startsWith("study:")) {
+      const topic = message.split(":").slice(1).join(":").trim() || "General topic";
+      questionForModel =
+        `Create a clear, beginner-friendly **5-day study plan** for the topic: "${topic}". ` +
+        `Use markdown headings and bullet points. Include daily goals and resources.`;
+    }
+    // Forced web search: web: / search:
+    else if (lower.startsWith("web:") || lower.startsWith("search:")) {
+      const query = message.split(":").slice(1).join(":").trim() || message;
+      webResults = await webSearch(query);
+      questionForModel =
+        `Using the web search results provided, answer this question clearly and concisely:\n\nQuestion: ${query}`;
+    }
+    // Auto web-search based on keywords
+    else if (shouldUseWebSearch(message)) {
+      webResults = await webSearch(message);
+    }
+
+    const reply = await runChat(questionForModel, webResults);
 
     // Save agent reply into history
     chatHistory.push({
@@ -916,15 +922,24 @@ app.post("/api/agent", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ SERVER ERROR:", err);
-    chatSession = null;
-    return res
-      .status(500)
-      .json({ error: err.message || "Internal server error" });
+
+    const userMessage =
+      err.message ||
+      "Something went wrong while talking to the AI model or web search.";
+
+    chatHistory.push({
+      id: nextId++,
+      sender: "agent",
+      text: "⚠️ " + userMessage,
+      timestamp: new Date().toISOString(),
+    });
+
+    return res.status(500).json({ error: userMessage, history: chatHistory });
   }
 });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 AI Agent with Gemini + SerpAPI running at http://localhost:${PORT}`);
+  console.log(`🚀 Dev AI Agent running with OpenRouter + SerpAPI at http://localhost:${PORT}`);
 });
 
